@@ -43,6 +43,9 @@ color:#fff;padding:5px 14px;border-radius:15px;font-size:11px;z-index:20;display
 backdrop-filter:blur(4px)}
 #pingDisplay{position:fixed;bottom:10px;right:15px;color:rgba(255,255,255,.3);
 font-size:10px;font-family:monospace;z-index:20;display:none}
+#chatBox{position:fixed;left:12px;bottom:12px;z-index:25;width:280px;display:none}
+#chatBox input{width:100%;padding:8px 10px;border:1px solid rgba(255,255,255,.2);border-radius:8px;background:rgba(0,0,0,.35);color:#fff;outline:none}
+#chatBox input::placeholder{color:rgba(255,255,255,.6)}
 /* Death screen */
 #DS{background:rgba(10,10,20,.72);backdrop-filter:blur(6px);display:none}
 #DS h2{color:#ff4757;font-size:36px;margin-bottom:6px;font-weight:800;
@@ -62,9 +65,14 @@ text-shadow:0 2px 12px rgba(255,71,87,.3)}
     <div class="online-badge wait" id="serverStatus">⏳ Verificando servidor...</div>
     <input class="inp" id="nameInp" placeholder="Seu nome..." maxlength="15"
            autocomplete="off" spellcheck="false">
-    <input class="inp" id="roomInp" placeholder="Sala (vazio = pública)" maxlength="20"
+    <input class="inp" id="roomInp" placeholder="Sala (ex.: empresa)" maxlength="20"
            autocomplete="off" spellcheck="false">
-    <div class="room-info">Mesma sala = mesma partida. Compartilhe com amigos!</div>
+    <div class="room-info">Mesma sala = mesma partida. Use um nome curto para compartilhar.</div>
+    <div style="display:flex;gap:8px;margin:8px 0 4px">
+        <button class="bt" id="onlineBtn" type="button" style="padding:10px 16px;margin-top:0">Online</button>
+        <button class="bt" id="offlineBtn" type="button" style="padding:10px 16px;margin-top:0;background:linear-gradient(135deg,#6c757d,#4b5563)">Offline</button>
+        <button class="bt" id="sandboxBtn" type="button" style="padding:10px 16px;margin-top:0;background:linear-gradient(135deg,#7d5cff,#5b3fd6)">Sandbox</button>
+    </div>
     <button class="bt" id="playBtn" disabled>JOGAR</button>
     <div class="ct">
         <kbd>WASD</kbd> Mover · <kbd>Mouse</kbd> Mirar · <kbd>Click</kbd>/<kbd>Espaço</kbd> Atirar ·
@@ -89,6 +97,7 @@ text-shadow:0 2px 12px rgba(255,71,87,.3)}
 <div id="statusBar">Conectando...</div>
 <div id="playerCount">👥 0</div>
 <div id="pingDisplay"></div>
+<div id="chatBox"><input id="chatInput" placeholder="Digite e pressione Enter para conversar..." maxlength="80"></div>
 
 <canvas id="c"></canvas>
 
@@ -158,7 +167,9 @@ const CLASS_NAMES = {
 //  STATE
 // ============================================================
 let socket = null, myId = null, playing = false, connected = false;
+let selectedMode = 'online';
 let gs = { p: [], s: [], b: [], me: null, lb: [], kf: [] };
+let chatMessages = [];
 let cam = { x: 0, y: 0 };
 let ms = { x: W / 2, y: H / 2, d: false };
 let keys = {}, aFire = false;
@@ -232,6 +243,20 @@ const checkInterval = setInterval(() => {
 //  NETWORKING
 // ============================================================
 function connectAndJoin(name, room) {
+    if (selectedMode === 'offline') {
+        myId = 'local';
+        playing = true;
+        document.getElementById('SS').style.display = 'none';
+        document.getElementById('DS').style.display = 'none';
+        playerCountEl.style.display = 'block';
+        pingEl.style.display = 'block';
+        playerCountEl.textContent = '👥 Modo offline';
+        document.getElementById('chatBox').style.display = 'none';
+        statusBar.textContent = '🛠️ Modo offline';
+        setTimeout(() => { statusBar.style.display = 'none'; }, 1200);
+        return;
+    }
+
     // Show connecting status
     statusBar.className = 'statusBar show';
     statusBar.style.display = 'block';
@@ -254,7 +279,7 @@ function connectAndJoin(name, room) {
         statusBar.textContent = '✅ Conectado! Entrando na sala...';
 
         // NOW send join
-        socket.emit('join', { name, room });
+        socket.emit('join', { name, room, mode: selectedMode });
     });
 
     // === JOINED ROOM ===
@@ -267,8 +292,9 @@ function connectAndJoin(name, room) {
         playerCountEl.style.display = 'block';
         pingEl.style.display = 'block';
         playerCountEl.textContent = `👥 ${data.count} online`;
+        document.getElementById('chatBox').style.display = 'block';
 
-        statusBar.textContent = `✅ Sala: ${data.room}`;
+        statusBar.textContent = `✅ Sala: ${data.room} • modo ${selectedMode}`;
         setTimeout(() => { statusBar.style.display = 'none'; }, 2000);
 
         console.log(`Joined room "${data.room}" as "${name}" (${data.count} players)`);
@@ -336,7 +362,7 @@ function connectAndJoin(name, room) {
     socket.on('reconnect', () => {
         connected = true;
         statusBar.textContent = '🔄 Reconectado! Re-entrando...';
-        socket.emit('join', { name, room });
+        socket.emit('join', { name, room, mode: selectedMode });
     });
 
     // === ERRORS ===
@@ -499,6 +525,13 @@ function dStats() {
     const cn = CLASS_NAMES[me.cls] || me.cls || 'Basic';
     X.fillText(`Lv ${me.lv} ${cn}`, px, py-18);
     if (me.sp > 0) { X.fillStyle = '#ffd700'; X.font = 'bold 12px Segoe UI'; X.fillText(`+${me.sp}`, px+bw-10, py-18); }
+
+    const hpPct = me.hp / Math.max(1, me.mhp);
+    X.fillStyle = 'rgba(255,255,255,.9)'; X.font = 'bold 10px Segoe UI';
+    X.fillText(`HP ${Math.max(0, Math.round(me.hp))}/${me.mhp}`, px, py - 42);
+    X.fillStyle = hpPct > .35 ? '#85e37d' : '#ff4757';
+    rR(px, py - 32, bw * hpPct, 8, 4); X.fill();
+
     for (let i = 0; i < 8; i++) {
         const yy = py + i * gap, val = (me.st || [])[i] || 0;
         X.fillStyle = 'rgba(0,0,0,.15)'; rR(px, yy, bw, bh, bh/2); X.fill();
@@ -521,7 +554,8 @@ function dStats() {
 function dXP() {
     const me = gs.me; if (!me || !me.alive) return;
     const bw = W * .38, bh = 22, x = W/2 - bw/2, y = H - 40;
-    const tPct = me.lv >= 45 ? 1 : (me.xpN > 0 ? me.xp / me.xpN : 0);
+    const xpNeeded = me.xpNext || 1;
+    const tPct = me.lv >= 45 ? 1 : (xpNeeded > 0 ? me.xp / xpNeeded : 0);
     uiXP = lp(uiXP, tPct, .08);
     X.fillStyle = 'rgba(0,0,0,.18)'; rR(x-1, y-1, bw+2, bh+2, bh/2+1); X.fill();
     if (uiXP > 0) {
@@ -531,7 +565,7 @@ function dXP() {
     }
     X.fillStyle = 'rgba(255,255,255,.9)'; X.font = 'bold 11px Segoe UI'; X.textAlign = 'center';
     const cn = CLASS_NAMES[me.cls] || me.cls || 'Basic';
-    X.fillText(`Level ${me.lv} — ${cn}`, W/2, y+15);
+    X.fillText(`Level ${me.lv} — ${cn} • ${me.xp}/${xpNeeded} XP`, W/2, y+15);
 }
 
 function dSc() {
@@ -593,6 +627,8 @@ function dMinimap() {
 function dIndicators() {
     X.font = 'bold 10px Segoe UI'; X.textAlign = 'left';
     if (aFire) { X.fillStyle = 'rgba(255,200,0,.7)'; X.fillText('⚡ Auto-Fire [E]', 16, 52); }
+    X.fillStyle = 'rgba(255,255,255,.7)';
+    X.fillText(`Modo: ${selectedMode === 'sandbox' ? 'Sandbox' : selectedMode === 'offline' ? 'Offline' : 'Online'}`, 16, 70);
     // Ping
     pingEl.textContent = `${Mn(pingMs, 999)}ms`;
 }
@@ -619,13 +655,14 @@ function checkClassUpgrade() {
 
 function dClassUpgrade() {
     if (!showCU || !classOpts.length) return;
-    const n = classOpts.length, cw = 82, ch = 42, g = 8;
+    const n = classOpts.length, cw = 92, ch = 48, g = 10;
     const tw = n * cw + (n-1) * g, sx = W/2 - tw/2, yy = 75;
-    X.fillStyle = 'rgba(255,255,255,.7)'; X.font = 'bold 12px Segoe UI'; X.textAlign = 'center';
+    X.fillStyle = 'rgba(0,0,0,.2)'; rR(sx - 12, yy - 26, tw + 24, ch + 40, 12); X.fill();
+    X.fillStyle = 'rgba(255,255,255,.95)'; X.font = 'bold 12px Segoe UI'; X.textAlign = 'center';
     X.fillText('⬆ Escolha uma classe', W/2, yy - 10);
     classOpts.forEach((cid, i) => {
         const cx = sx + i * (cw + g);
-        X.fillStyle = 'rgba(0,50,100,.15)'; X.strokeStyle = 'rgba(0,178,225,.5)'; X.lineWidth = 2;
+        X.fillStyle = 'rgba(0,50,100,.18)'; X.strokeStyle = 'rgba(0,178,225,.6)'; X.lineWidth = 2;
         rR(cx, yy, cw, ch, 8); X.fill(); rR(cx, yy, cw, ch, 8); X.stroke();
         // Tank circle
         X.beginPath(); X.arc(cx + 18, yy + ch/2, 10, 0, P2);
@@ -665,6 +702,22 @@ function handleStatClick(mx, my) {
 // ============================================================
 //  MAIN LOOP
 // ============================================================
+let chatMessages = [];
+
+function dChat() {
+    if (!socket || !playing) return;
+    const messages = chatMessages.slice(-6);
+    if (!messages.length) return;
+    X.fillStyle = 'rgba(0,0,0,.16)'; rR(12, H - 155, 260, 34 + messages.length * 16, 10); X.fill();
+    X.fillStyle = 'rgba(255,255,255,.9)'; X.font = 'bold 11px Segoe UI'; X.textAlign = 'left';
+    X.fillText('Chat', 22, H - 138);
+    messages.forEach((msg, i) => {
+        X.font = '10px Segoe UI';
+        X.fillStyle = 'rgba(255,255,255,.85)';
+        X.fillText(`${msg.name}: ${msg.text}`, 22, H - 120 + i * 14);
+    });
+}
+
 function loop() {
     requestAnimationFrame(loop);
     if (!playing) return;
@@ -707,7 +760,7 @@ function loop() {
     sortedPlayers.forEach(dPlayer);
 
     // UI
-    dStats(); dXP(); dSc(); dLB(); dMinimap(); dKillFeed(); dIndicators();
+    dStats(); dXP(); dSc(); dLB(); dMinimap(); dKillFeed(); dIndicators(); dChat();
     dClassUpgrade();
 
     // Connection lost indicator
@@ -753,16 +806,32 @@ C.addEventListener('contextmenu', e => e.preventDefault());
 // ============================================================
 //  START BUTTON
 // ============================================================
-document.getElementById('playBtn').addEventListener('click', () => {
-    const name = document.getElementById('nameInp').value.trim() || 'Jogador';
-    const room = document.getElementById('roomInp').value.trim() || 'public';
+document.getElementById('onlineBtn').addEventListener('click', () => { selectedMode = 'online'; document.getElementById('onlineBtn').style.opacity='1'; document.getElementById('offlineBtn').style.opacity='.7'; document.getElementById('sandboxBtn').style.opacity='.7'; });
+document.getElementById('offlineBtn').addEventListener('click', () => { selectedMode = 'offline'; document.getElementById('offlineBtn').style.opacity='1'; document.getElementById('onlineBtn').style.opacity='.7'; document.getElementById('sandboxBtn').style.opacity='.7'; });
+document.getElementById('sandboxBtn').addEventListener('click', () => { selectedMode = 'sandbox'; document.getElementById('sandboxBtn').style.opacity='1'; document.getElementById('onlineBtn').style.opacity='.7'; document.getElementById('offlineBtn').style.opacity='.7'; });
+
+socket = io(SERVER_URL, { transports: ['websocket', 'polling'], reconnection: true, reconnectionAttempts: 15, reconnectionDelay: 1000, reconnectionDelayMax: 5000, timeout: 10000 });
+socket.on('chatMessage', (msg) => { chatMessages.push(msg); if (chatMessages.length > 12) chatMessages.shift(); });
+
+playBtn.addEventListener('click', () => {
+    const name = document.getElementById('nameInp').value.trim() || `Jogador${Math.floor(Math.random()*90+10)}`;
+    const room = document.getElementById('roomInp').value.trim().toLowerCase() || 'public';
     playBtn.disabled = true;
     playBtn.textContent = 'CONECTANDO...';
     connectAndJoin(name, room);
 });
-
+const chatInput = document.getElementById('chatInput');
+chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && socket && playing && selectedMode !== 'offline') {
+        const text = chatInput.value.trim();
+        if (text) {
+            socket.emit('chat', text);
+            chatInput.value = '';
+        }
+    }
+});
 document.getElementById('nameInp').addEventListener('keydown', e => {
-    if (e.key === 'Enter') document.getElementById('playBtn').click();
+    if (e.key === 'Enter') playBtn.click();
 });
 
 // Start render loop (renders start screen bg while waiting)

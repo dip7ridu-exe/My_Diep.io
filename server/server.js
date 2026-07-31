@@ -69,13 +69,15 @@ app.get('/api/status', (req, res) => {
 io.on('connection', (socket) => {
     let currentRoom = null;
     let currentRoomId = null;
+    let currentMode = 'online';
 
     console.log(`🔌 Connected: ${socket.id}`);
 
     // ===== JOIN =====
-    socket.on('join', ({ name, room }) => {
+    socket.on('join', ({ name, room, mode }) => {
         const roomId = (room || 'public').toLowerCase().trim().substring(0, 20);
         currentRoomId = roomId;
+        currentMode = (mode || 'online').toLowerCase();
         currentRoom = getOrCreateRoom(roomId);
 
         const player = currentRoom.addPlayer(socket.id, name || 'Jogador');
@@ -85,7 +87,8 @@ io.on('connection', (socket) => {
             id: socket.id,
             room: roomId,
             playerCount: currentRoom.players.size,
-            count: currentRoom.players.size
+            count: currentRoom.players.size,
+            mode: currentMode
         });
 
         io.to(roomId).emit('playerCount', currentRoom.players.size);
@@ -153,6 +156,16 @@ io.on('connection', (socket) => {
     socket.on('cls', handleClassUpgrade);
 
     // ===== DISCONNECT =====
+    socket.on('chat', (message) => {
+        if (!currentRoom || !message) return;
+        const player = currentRoom.getPlayer(socket.id);
+        const text = String(message).slice(0, 80).trim();
+        if (!text) return;
+        const sender = player ? player.name : 'Anônimo';
+        const payload = { name: sender, text };
+        io.to(currentRoomId).emit('chatMessage', payload);
+    });
+
     socket.on('disconnect', () => {
         if (currentRoom) {
             const player = currentRoom.getPlayer(socket.id);

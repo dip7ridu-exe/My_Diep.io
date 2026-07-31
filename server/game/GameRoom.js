@@ -12,6 +12,7 @@ class GameRoom {
         this.players = new Map();  // socketId -> Player
         this.shapes = [];
         this.bullets = [];
+        this.killFeed = [];
         this.lastTick = Date.now();
         this.tickInterval = null;
 
@@ -57,21 +58,35 @@ class GameRoom {
         if (!player || !player.alive || player.reloadTimer > 0) return;
 
         const cd = CLASSES[player.cls] || CLASSES.basic;
-        const angle = player.angle;
+        const baseAngle = player.angle;
         const speed = player.getBulletSpeed();
         const size = player.getBulletSize();
         const dmg = player.getBulletDmg();
         const pen = player.getBulletPen();
 
-        const bx = player.x + Math.cos(angle) * (player.r + 6);
-        const by = player.y + Math.sin(angle) * (player.r + 6);
+        const shotAngles = [];
+        if (player.cls === 'twin') {
+            shotAngles.push(baseAngle - 0.12, baseAngle + 0.12);
+        } else if (player.cls === 'tripleShot') {
+            shotAngles.push(baseAngle - 0.18, baseAngle, baseAngle + 0.18);
+        } else if (player.cls === 'quad') {
+            shotAngles.push(baseAngle - 0.24, baseAngle - 0.08, baseAngle + 0.08, baseAngle + 0.24);
+        } else if (player.cls === 'sniper') {
+            shotAngles.push(baseAngle);
+        } else {
+            shotAngles.push(baseAngle);
+        }
 
-        this.bullets.push(new Bullet(socketId, bx, by, angle, speed, size, dmg, pen));
+        const bx = player.x + Math.cos(baseAngle) * (player.r + 6);
+        const by = player.y + Math.sin(baseAngle) * (player.r + 6);
 
-        // Recoil
-        const recoil = 0.8 * (cd.bz || 1);
-        player.vx -= Math.cos(angle) * recoil;
-        player.vy -= Math.sin(angle) * recoil;
+        shotAngles.forEach((angle) => {
+            this.bullets.push(new Bullet(socketId, bx, by, angle, speed, size, dmg, pen));
+        });
+
+        const recoil = 0.8 * (cd.bz || 1) * Math.max(1, shotAngles.length * 0.6);
+        player.vx -= Math.cos(baseAngle) * recoil;
+        player.vy -= Math.sin(baseAngle) * recoil;
 
         player.reloadTimer = player.getReloadTime();
     }
@@ -114,7 +129,7 @@ class GameRoom {
         this.spawnShapes();
 
         // Remove disconnected players after timeout
-        const timeout = 30000;
+        const timeout = 20000;
         for (const [id, p] of this.players) {
             if (Date.now() - p.lastActive > timeout) {
                 this.removePlayer(id);
@@ -141,8 +156,9 @@ class GameRoom {
                         s.alive = false;
                         const owner = this.players.get(b.ownerId);
                         if (owner && owner.alive) {
-                            const leveled = owner.addXp(s.xp);
+                            owner.addXp(s.xp);
                             owner.score += s.score;
+                            this.pushKillFeed(`${owner.name} destruiu ${s.type || 'uma forma'}`);
                         }
                     }
                 }
@@ -173,6 +189,7 @@ class GameRoom {
                             killer.addXp(Math.floor(p.score * 0.5 + p.lv * 10));
                             killer.score += Math.floor(p.score * 0.3);
                             killer.kills++;
+                            this.pushKillFeed(`${killer.name} eliminou ${p.name}`);
                         }
                         // Auto respawn after delay
                         setTimeout(() => {
@@ -227,10 +244,16 @@ class GameRoom {
                         s.alive = false;
                         p.addXp(s.xp);
                         p.score += s.score;
+                        this.pushKillFeed(`${p.name} destruiu ${s.type || 'uma forma'}`);
                     }
                 }
             }
         }
+    }
+
+    pushKillFeed(text) {
+        this.killFeed.push(text);
+        if (this.killFeed.length > 8) this.killFeed.shift();
     }
 
     // ===== STATE SERIALIZATION =====
@@ -247,17 +270,19 @@ class GameRoom {
 
         const shapes = this.shapes
             .filter(s => Math.abs(s.x - cx) < viewDist && Math.abs(s.y - cy) < viewDist)
-            .map(s => s.serialize());
+            .map(s => typeof s.serialize === 'function' ? s.serialize() : s);
 
         const bullets = this.bullets
             .filter(b => Math.abs(b.x - cx) < viewDist && Math.abs(b.y - cy) < viewDist)
-            .map(b => b.serialize());
+            .map(b => typeof b.serialize === 'function' ? b.serialize() : b);
 
         return {
-            players,
-            shapes,
-            bullets,
+            p: players,
+            s: shapes,
+            b: bullets,
             me: me ? me.serializeFull() : null,
+            lb: this.getLeaderboard(),
+            kf: [...this.killFeed],
             time: Date.now()
         };
     }

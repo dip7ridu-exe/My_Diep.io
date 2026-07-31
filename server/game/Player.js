@@ -4,8 +4,8 @@ class Player {
     constructor(id, name) {
         this.id = id;
         this.name = name || 'Jogador';
-        this.x = (Math.random() - 0.5) * 600;
-        this.y = (Math.random() - 0.5) * 600;
+        this.x = (Math.random() - 0.5) * 500;
+        this.y = (Math.random() - 0.5) * 500;
         this.vx = 0;
         this.vy = 0;
         this.angle = 0;
@@ -13,6 +13,7 @@ class Player {
         this.hp = 50;
         this.mhp = 50;
         this.cls = 'basic';
+        this.mode = 'online';
         this.lv = 1;
         this.xp = 0;
         this.score = 0;
@@ -22,7 +23,7 @@ class Player {
         this.alive = true;
         this.reloadTimer = 0;
         this.regenTimer = 0;
-        this.invuln = 120;
+        this.invuln = 90;
 
         // Input state (received from client)
         this.input = { ix: 0, iy: 0, angle: 0, shooting: false };
@@ -76,7 +77,7 @@ class Player {
         this.stats[index]++;
         this.sp--;
         this.mhp = this.getMaxHp();
-        this.hp = Math.min(this.hp + 5, this.mhp);
+        this.hp = Math.min(this.hp + 6, this.mhp);
         return true;
     }
 
@@ -93,6 +94,11 @@ class Player {
 
         const spd = this.getSpeed();
         const { ix, iy, angle } = this.input;
+
+        if (this.cls === 'booster' || this.cls === 'fighter') {
+            this.vx += Math.cos(angle || 0) * 0.04 * dt;
+            this.vy += Math.sin(angle || 0) * 0.04 * dt;
+        }
 
         // Movement
         this.vx += ix * spd * 0.35 * dt;
