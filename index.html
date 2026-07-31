@@ -97,9 +97,15 @@ text-shadow:0 2px 12px rgba(255,71,87,.3)}
 
 <script>
 // ============================================================
-//  ⚡ SERVER URL — set via ?server=https://your-railway-url.railway.app
+//  ⚡ SERVER URL — uses the current host by default when the frontend
+//  is served from the same Railway app. For GitHub Pages, pass
+//  ?server=https://your-railway-url.railway.app
 // ============================================================
-const SERVER_URL = new URLSearchParams(window.location.search).get('server') || 'https://mydiepio-production.up.railway.app';
+const SERVER_URL = (() => {
+    const override = new URLSearchParams(window.location.search).get('server');
+    if (override) return override;
+    return window.location.origin;
+})();
 
 // ============================================================
 //  ENGINE

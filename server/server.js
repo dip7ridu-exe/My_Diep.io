@@ -1,3 +1,4 @@
+const path = require('path');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -12,6 +13,7 @@ const corsOptions = {
     credentials: true
 };
 app.use(cors(corsOptions));
+app.use(express.static(path.join(__dirname, '..')));
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -47,15 +49,7 @@ setInterval(cleanEmptyRooms, 30000);
 
 // ===== HEALTH CHECK =====
 app.get('/', (req, res) => {
-    const roomList = [];
-    for (const [id, room] of rooms) {
-        roomList.push({ id, players: room.players.size });
-    }
-    res.json({
-        status: 'ok',
-        rooms: roomList,
-        totalPlayers: [...rooms.values()].reduce((s, r) => s + r.players.size, 0)
-    });
+    res.sendFile(path.join(__dirname, '..', 'index.html'));
 });
 
 app.get('/api/status', (req, res) => {
