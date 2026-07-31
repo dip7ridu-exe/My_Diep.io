@@ -6,16 +6,19 @@ const GameRoom = require('./game/GameRoom');
 const { UPGRADE_TREE, CLASSES } = require('./game/constants');
 
 const app = express();
-app.use(cors());
+const corsOptions = {
+    origin: '*',
+    methods: ['GET', 'POST'],
+    credentials: true
+};
+app.use(cors(corsOptions));
 
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: {
-        origin: '*',
-        methods: ['GET', 'POST']
-    },
+    cors: corsOptions,
     pingInterval: 5000,
-    pingTimeout: 10000
+    pingTimeout: 10000,
+    allowEIO3: true
 });
 
 // ===== ROOM MANAGEMENT =====
@@ -55,6 +58,19 @@ app.get('/', (req, res) => {
     });
 });
 
+app.get('/api/status', (req, res) => {
+    const roomList = [];
+    for (const [id, room] of rooms) {
+        roomList.push({ id, players: room.players.size });
+    }
+
+    res.json({
+        status: 'online',
+        rooms: roomList,
+        total: [...rooms.values()].reduce((s, r) => s + r.players.size, 0)
+    });
+});
+
 // ===== SOCKET HANDLING =====
 io.on('connection', (socket) => {
     let currentRoom = null;
@@ -74,10 +90,12 @@ io.on('connection', (socket) => {
         socket.emit('joined', {
             id: socket.id,
             room: roomId,
-            playerCount: currentRoom.players.size
+            playerCount: currentRoom.players.size,
+            count: currentRoom.players.size
         });
 
         io.to(roomId).emit('playerCount', currentRoom.players.size);
+        io.to(roomId).emit('count', currentRoom.players.size);
 
         console.log(`👤 "${name}" joined room "${roomId}" (${currentRoom.players.size} players)`);
     });
@@ -103,16 +121,19 @@ io.on('connection', (socket) => {
     });
 
     // ===== STAT UPGRADE =====
-    socket.on('upgradeStat', (index) => {
+    const handleStatUpgrade = (index) => {
         if (!currentRoom) return;
         const player = currentRoom.getPlayer(socket.id);
         if (player) {
             player.upgradeStat(index);
         }
-    });
+    };
+
+    socket.on('upgradeStat', handleStatUpgrade);
+    socket.on('stat', handleStatUpgrade);
 
     // ===== CLASS UPGRADE =====
-    socket.on('upgradeClass', (newCls) => {
+    const handleClassUpgrade = (newCls) => {
         if (!currentRoom) return;
         const player = currentRoom.getPlayer(socket.id);
         if (!player) return;
@@ -132,7 +153,10 @@ io.on('connection', (socket) => {
         if (valid && CLASSES[newCls]) {
             player.upgradeClass(newCls);
         }
-    });
+    };
+
+    socket.on('upgradeClass', handleClassUpgrade);
+    socket.on('cls', handleClassUpgrade);
 
     // ===== DISCONNECT =====
     socket.on('disconnect', () => {
@@ -156,12 +180,13 @@ setInterval(() => {
             const state = room.getState(socketId);
             state.lb = leaderboard;
             io.to(socketId).emit('state', state);
+            io.to(socketId).emit('gs', state);
         }
     }
 }, 1000 / 30); // 30fps state updates
 
 // ===== START SERVER =====
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Diep.io server running on port ${PORT}`);
 });

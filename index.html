@@ -97,9 +97,9 @@ text-shadow:0 2px 12px rgba(255,71,87,.3)}
 
 <script>
 // ============================================================
-//  ⚡ SERVER URL — YOUR RAILWAY URL
+//  ⚡ SERVER URL — set via ?server=https://your-railway-url.railway.app
 // ============================================================
-const SERVER_URL = 'https://mydiepio-production.up.railway.app';
+const SERVER_URL = new URLSearchParams(window.location.search).get('server') || 'https://mydiepio-production.up.railway.app';
 
 // ============================================================
 //  ENGINE
